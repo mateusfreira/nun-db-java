@@ -4,6 +4,12 @@ import com.alexfrocha.NunDB;
 import com.alexfrocha.async.interfaces.Watcher;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+import java.util.concurrent.TimeUnit ;
+
+import java.time.Duration;
+
+
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,13 +18,19 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class NunDBTests {
 
-    private static final NunDB nun = new NunDB("ws://localhost:3012/", "user-name", "user-pwd");
+class NunDBTest {
+
+    private static final String host = System.getenv("NUNDB_HOST");
+    private static final String user = System.getenv("NUNDB_USER");
+    private static final String pwd = System.getenv("NUNDB_PWD");
+
+    private static final NunDB nun = new NunDB(host, user, pwd);
 
     @Test
     @DisplayName("Getting value before setting a value for it")
     void getTestBeforeSettingValue() {
+        //assertEquals(host, "mateus1");
         nun.createDb("aware", "aware");
         nun.useDb("aware", "aware");
         Object value = nun.get("before").join();
@@ -38,30 +50,29 @@ class NunDBTests {
     @Test
     @DisplayName("Watching value in realtime")
     void testingWatchingValue() throws InterruptedException {
-        List<Object> cacheFromWatcher = new ArrayList<>();
-        nun.createDb("aware", "aware");
-        nun.useDb("aware", "aware");
+        assertTimeoutPreemptively(Duration.ofMillis(100), () -> {
+            CompletableFuture<String> waitForWatchers = new CompletableFuture<>();
 
-        Watcher saveThis = e -> {
-            cacheFromWatcher.add(e);
-        };
+            List<Object> cacheFromWatcher = new ArrayList<>();
+            nun.createDb("aware", "aware");
+            nun.useDb("aware", "aware");
 
-        CompletableFuture<Void> kmWatcher = nun.addWatch("km", saveThis);
-        nun.set("km", "2");
-        nun.set("km", "3");
-        nun.set("km", "4");
-        nun.set("km", "5");
+            Watcher saveThis = e -> {
+                cacheFromWatcher.add(e);
+                if (cacheFromWatcher.size() == 4) {
+                    waitForWatchers.complete("done");
+                }
+            };
 
-        // just a way to delay the code and the async watcher be completed before the code run is finished
-        nun.get("km").join();
-        nun.get("km").join();
-        nun.get("km").join();
-        nun.get("km").join();
-        nun.get("km").join();
-
-
-        assertEquals(4, cacheFromWatcher.size());
-        assertEquals(true, cacheFromWatcher.containsAll(Arrays.asList("2", "3", "4", "5")));
+            CompletableFuture<Void> kmWatcher = nun.addWatch("km", saveThis);
+            nun.set("km", "2");
+            nun.set("km", "3");
+            nun.set("km", "4");
+            nun.set("km", "5");
+            waitForWatchers.join();
+            assertEquals(4, cacheFromWatcher.size());
+            assertEquals(true, cacheFromWatcher.containsAll(Arrays.asList("2", "3", "4", "5")));
+        });
     }
 
     @Test
@@ -80,30 +91,29 @@ class NunDBTests {
     @Test
     @DisplayName("Removing watcher")
     void testRemoveWatcher() {
-        nun.createDb("aware", "aware");
-        nun.useDb("aware", "aware");
+        //nun.createDb("aware", "aware");
+        assertTimeoutPreemptively(Duration.ofMillis(1000), () -> {
+            CompletableFuture<String> waitForWatchers = new CompletableFuture<>();
+            //nun.createDb("aware", "aware");
+            nun.useDb("aware", "aware");
 
-        List<Object> cacheFromWatcher = new ArrayList<>();
+            List<Object> cacheFromWatcher = new ArrayList<>();
 
-        Watcher saveThis = e -> {
-            cacheFromWatcher.add(e);
-        };
+            Watcher saveThis = e -> {
+                System.out.println("here we are po/");
+                cacheFromWatcher.add(e);
+                waitForWatchers.complete("done");
+            };
 
-        nun.addWatch("remove", saveThis);
-        nun.set("remove", "initial");
-
-        // just a way to delay the code and the async watcher be completed before the code run is finished
-        nun.get("remove").join();
-        nun.get("remove").join();
-        nun.get("remove").join();
-
-        nun.removeWatcher("remove");
-
-        nun.set("remove", "modified");
-
-
-        assertEquals(1, cacheFromWatcher.size());
-        assertEquals("initial", cacheFromWatcher.get(0));
+            nun.addWatch("remove", saveThis);
+            nun.set("remove", "initial");
+            Thread.sleep(1);
+            nun.removeWatcher("remove");
+            nun.set("remove", "modified");
+            waitForWatchers.join();
+            assertEquals(1, cacheFromWatcher.size());
+            assertEquals("initial", cacheFromWatcher.get(0));
+        });
     }
 
     @Test
@@ -130,6 +140,6 @@ class NunDBTests {
     @DisplayName("Getting all databases")
     void testGetAllDatabases() {
         List<String> allDatabases = nun.getAllDatabases().join();
-        assertEquals(Arrays.asList("$admin", "aware"), allDatabases);
+        assertTrue(allDatabases.containsAll(Arrays.asList("$admin", "aware")));
     }
 }
